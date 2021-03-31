@@ -31,6 +31,10 @@ let showModal = (html) => {
         modal.setAttribute('style', 'font-size: 15px; padding: 20px; background:rgba(0,0,0,0.8); position: fixed; top: 0; left: 0; width: 100%; height: 100%; color: rgb(255, 255, 255); z-index: 100;');
         document.body.appendChild(modal);
 
+        let instructions = document.createElement('p');
+        instructions.innerText = "Denna tabell visar hur timmarna fördelas för den aktuella månaden. Klicka ur de projekt som inte är aktuella för sammanräkningen så kommer procentsatserna att uppdateras.";
+        modal.appendChild(instructions);
+
         modal.appendChild(modalBody);
 
         let close = document.createElement('a');
@@ -73,6 +77,7 @@ let updateAll = () => {
     updateTotal();
     updateRows();
 }
+
 let createRow = (key, value, isData) => "<div style='margin: 5px;' class='input-row" + (isData ? " is-data" : "") + "' data-value='" + value + "'>" + (isData ? ("<input checked onChange='updateAll()' type=checkbox value='" + key + "'/>") : "") + "<span style='display: inline-block; width: 400px;'>" + key + ": </span><span style='display: inline-block; min-width: 200px;' class='value'>" + value + "</span> <span class='percent'>100 %</span></div>";
 let rowsHtml = Object.entries(getProjects()).map(([key, value]) => createRow(key, value, true)).join("");
 let sumHtml = createRow("Totalt", 0, false);
