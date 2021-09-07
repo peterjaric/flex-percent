@@ -31,10 +31,12 @@ let showModal = (html) => {
         modal.setAttribute('style', 'font-size: 15px; padding: 20px; background:rgba(0,0,0,0.8); position: fixed; top: 0; left: 0; width: 100%; height: 100%; color: rgb(255, 255, 255); z-index: 100;');
         document.body.appendChild(modal);
         
-        let name = document.querySelector('#ModelDescription').getValue();
-        let title = document.createElement('h1');
-        title.innerText = "Rapport för: " + name;
-        modal.appendChild(title);
+        let modelDescription = document.querySelector('#ModelDescription');
+        if (!modelDescription) {
+                let title = document.createElement('h1');
+                title.innerText = "Rapport för: " + modelDescription.getValue();
+                modal.appendChild(title);
+        }
        
         let instructions = document.createElement('p');
         instructions.innerText = "Denna tabell visar hur timmarna fördelas för den aktuella månaden. Klicka ur de projekt som inte är aktuella för sammanräkningen så kommer procentsatserna att uppdateras.";
