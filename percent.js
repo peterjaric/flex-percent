@@ -1,7 +1,7 @@
 let getProject =
     i => document.querySelectorAll('.body .row')[i].querySelectorAll('.Kontering input')[0].getAttribute('data-entitydescription');
 let getSumma =
-    i => document.querySelectorAll('.summa .body .row')[i].querySelector('.cell').textContent.trim();
+    i => Number.parseFloat(document.querySelectorAll('.summa .body .row')[i].querySelector('.cell').textContent.trim().replace(/,/, '.'));
 let getProjectCount = () => document.querySelectorAll('.body .row').length;
 
 let getProjects =
@@ -11,7 +11,10 @@ let getProjects =
             try {
                 let project = getProject(i);
                 if (project) {
-                    projects[project] = getSumma(i);
+                    if (!projects[project]) {
+                        projects[project] = 0;
+                    }
+                    projects[project] += getSumma(i);
                 }
             } catch (e) { }
         }
@@ -50,12 +53,11 @@ let showModal = (html) => {
 
 let countTotal = () => {
     let inputs = document.querySelectorAll('#project-modal .input-row.is-data');
-    let values = Array.from(inputs).map(input => input.querySelector('input').checked ? Number.parseFloat(input.dataset.value.replace(/,/, ".")) : 0);
+    let values = Array.from(inputs).map(input => input.querySelector('input').checked ? Number.parseFloat(input.dataset.value) : 0);
     return values.reduce((accumulator, currentValue) => accumulator + currentValue, 0);
 };
 
 let updateTotal = () => {
-    let total = countTotal();
     document.querySelector('#project-modal .input-row:not(.is-data) .value').innerText = countTotal();
 };
 
@@ -65,7 +67,7 @@ let updateRows = () => {
     Array.from(inputs).forEach(input => {
         let percentSpan = input.querySelector('.percent');
         if (input.querySelector('input').checked) {
-            let hours = Number.parseFloat(input.dataset.value.replace(/,/, "."));
+            let hours = Number.parseFloat(input.dataset.value);
             percentSpan.innerText = Math.round(100 * hours / total) + " %";
         } else {
             percentSpan.innerText = '';
