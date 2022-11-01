@@ -1,233 +1,596 @@
-let getProject =
-    i => document.querySelectorAll('.body .row')[i].querySelectorAll('.Kontering input')[0].getAttribute('data-entitydescription');
-let getSumma =
-    i => Number.parseFloat(document.querySelectorAll('.summa .body .row')[i].querySelector('.cell').textContent.trim().replace(',', '.'));
-let getProjectCount = () => document.querySelectorAll('.body .row').length;
+/* eslint-disable no-param-reassign */
 
-let getCurrentMonthProjects = () => {
-    let projects = {};
-    for (let i = 0; i < getProjectCount(); i++) {
-        try {
-            let project = getProject(i);
-            if (project) {
-                if (!projects[project]) {
-                    projects[project] = 0;
-                }
-                projects[project] += getSumma(i);
-            }
-        } catch (e) { }
-    }
-    return projects;
+const getProject = (i) => document.querySelectorAll('.body .row')[i]
+  .querySelectorAll('.Kontering input')[0].getAttribute('data-entitydescription');
+const getHours = (i, d) => Number.parseFloat(document.querySelectorAll('.right .body .row')[i]
+  .querySelector(`.day-${d}`).textContent.trim().replace(',', '.')) || 0;
+const getProjectCount = () => document.querySelectorAll('.body .row').length;
+const getCurrentMonth = () => document.querySelector('#Period_EntityDescription').value;
+
+const getCurrentMonthProjects = () => {
+  const results = {};
+  const currentMonth = getCurrentMonth();
+  const currentMonthDate = new Date(currentMonth.substr(0, 4), currentMonth.substr(4, 2) - 1, 1);
+  const daysInMonth = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() + 1, 0)
+    .getDate();
+  const yearKey = currentMonthDate.getFullYear();
+  const monthKey = currentMonthDate.getMonth() + 1 < 10
+    ? `0${currentMonthDate.getMonth() + 1}`
+    : currentMonthDate.getMonth() + 1;
+
+  for (let p = 0; p < getProjectCount(); p += 1) {
+    try {
+      const project = getProject(p);
+      if (project) {
+        for (let d = 1; d <= daysInMonth; d += 1) {
+          const dateKey = `${yearKey}${monthKey}${d < 10 ? `0${d}` : d}`;
+          results[project] = results[project] || {};
+          results[project][dateKey] = results[project][dateKey] || 0;
+          results[project][dateKey] += getHours(p, d);
+        }
+      }
+    // eslint-disable-next-line no-empty
+    } catch (e) { }
+  }
+  return results;
 };
 
-let showModal = (html) => {
-    var modalBody = document.querySelector('#modal-body');
-    if (!modalBody) {
-        modalBody = document.createElement('div');
-        modalBody.id = 'modal-body';
-    }
-    var modal = document.querySelector('#project-modal');
-    if (!modal) {
-        modal = document.createElement('div');
-        modal.id = 'project-modal';
-        modal.setAttribute('style', 'font-size: 15px; line-height: 1.5; padding: 20px; background:rgba(0,0,0,0.8); position: fixed; top: 0; left: 0; width: 100%; height: 100%; color: rgb(255, 255, 255); z-index: 100;');
-        document.body.appendChild(modal);
-
-        let instructions = document.createElement('p');
-        instructions.setAttribute('style', 'max-width: 900px');
-        instructions.innerText = 'Denna tabell visar hur timmarna fördelas för ' + (Object.keys(projects).length === 1 ? 'den aktuella månaden' : 'de aktuella månaderna') + 
-            '. Ange hur många procent du jobbar och klicka ur de projekt ' + (Object.keys(projects).length === 1 ? '' : 'och månader') + ' som inte är aktuella för sammanräkningen så kommer procentsatserna att uppdateras.' + 
-            ' Du kan lägga till fler månader genom att stänga detta fönster, byta månad i månadsvyn och sedan aktivera skriptet igen.';
-        modal.appendChild(instructions);
-
-        modal.appendChild(modalBody);
-
-        if (Object.keys(projects).length > 1) {
-            let clear = document.createElement('a');
-            clear.setAttribute('style', 'padding: 5px 10px; border: 1px solid white; margin-top: 15px; margin-right: 15px; display: inline-block;');
-            clear.text = 'Nollställ och stäng';
-            clear.href = '#';
-            clear.onclick = () => { localStorage.removeItem('projects'); projects = {}; modal.remove(); return false; };
-            modal.appendChild(clear);
-        }
-
-        let close = document.createElement('a');
-        close.setAttribute('style', 'padding: 5px 10px; border: 1px solid white; margin-top: 15px; display: inline-block;');
-        close.text = 'Stäng';
-        close.href = '#';
-        close.onclick = () => { modal.remove(); return false; };
-        modal.appendChild(close);
-    }
-
-    modalBody.innerHTML = html;
+const getWeekNumber = (date) => {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
 };
 
-let updateAll = () => {
-    let wp = Number.parseInt(document.querySelector('#project-modal .workingPercent').value) / 100;
+const merge = (obj1, obj2) => {
+  const result = { ...obj1 };
+  Object.keys(obj2).forEach((key) => {
+    result[key] = result[key] ? { ...result[key], ...obj2[key] } : obj2[key];
+  });
+  return result;
+};
 
-    // Total hours each month
-    document.querySelectorAll('#project-modal tr.total td[class^="hour2"]').forEach((td) => {
-        month = td.className.split('hour')[1];
-        if (Object.keys(projects).length == 1 || document.querySelector('#project-modal tr.header th.header' + month + ' input').checked) {
-            let totalHours = 0;
-            for (const [project, hour] of Object.entries(projects[month])) {
-                totalHours += document.querySelector('#project-modal tr.project' + project.replaceAll(/\W/g, '') + ' input').checked ? hour : 0;
-            }
-            td.innerText = totalHours.toFixed(2).replace('.', ',');
-        }
-        else {
-            td.innerText = '';
-        }
+const sortObj = (obj) => Object.keys(obj).sort().reduce((result, key) => {
+  result[key] = obj[key];
+  return result;
+}, {});
+
+const updateStorageProjects = () => {
+  const storageProjects = JSON.parse(localStorage.getItem('projectModalProjects')) || {};
+  const projects = sortObj(merge(storageProjects, getCurrentMonthProjects()));
+  localStorage.setItem('projectModalProjects', JSON.stringify(projects));
+};
+
+const clearStorageProjects = () => {
+  localStorage.removeItem('projectModalProjects');
+};
+
+const getStorageProjects = () => {
+  const storageProjects = JSON.parse(localStorage.getItem('projectModalProjects')) || {};
+  return sortObj(storageProjects);
+};
+
+const updateStorageChecked = () => {
+  const storageChecked = JSON.parse(localStorage.getItem('projectModalChecked')) || {};
+  const checked = { ...storageChecked };
+
+  document.querySelectorAll('#project-modal table input').forEach((input) => {
+    checked[input.value] = input.checked;
+  });
+
+  localStorage.setItem('projectModalChecked', JSON.stringify(checked));
+};
+const getStorageChecked = () => JSON.parse(localStorage.getItem('projectModalChecked')) || {};
+
+const clearStorageChecked = () => {
+  localStorage.removeItem('projectModalChecked');
+};
+
+const updateStorageSettings = () => {
+  const storageSettings = JSON.parse(localStorage.getItem('projectModalSettings')) || {};
+  let settings = { ...storageSettings };
+
+  const wpNode = document.querySelector('#project-modal input.workingPercent');
+  if (wpNode) {
+    settings.wp = Number.parseInt(wpNode.value, 10);
+  }
+
+  const timeNode = document.querySelector('#project-modal input[name="time"]');
+  if (timeNode) {
+    settings.time = timeNode.value === 'week' && timeNode.checked ? 'week' : 'month';
+  }
+
+  const showHoursNode = document.querySelector('#project-modal input[name="showHours"]');
+  if (showHoursNode) {
+    settings.showHours = showHoursNode.checked;
+  }
+
+  if (Object.keys(settings).length === 0) {
+    settings = { wp: 100, time: 'month', showHours: true };
+  }
+
+  localStorage.setItem('projectModalSettings', JSON.stringify(settings));
+};
+const getStorageSettings = () => JSON.parse(localStorage.getItem('projectModalSettings')) || {};
+
+const updateStorage = () => {
+  updateStorageProjects();
+  updateStorageChecked();
+  updateStorageSettings();
+};
+
+const getStorageProjectsByWeek = () => {
+  const projects = getStorageProjects();
+  const result = {};
+
+  Object.keys(projects).forEach((project) => {
+    Object.keys(projects[project]).forEach((date) => {
+      const dateObj = (
+        new Date(date.substring(0, 4), date.substring(4, 6) - 1, date.substring(6, 8))
+      );
+      const week = getWeekNumber(dateObj);
+      const weekYear = dateObj.getMonth() === 0 && week > 50
+        ? dateObj.getFullYear() - 1
+        : dateObj.getFullYear();
+      const weekKey = `v${weekYear}${week < 10 ? `0${week}` : week}`;
+
+      result[weekKey] = result[weekKey] || {};
+      result[weekKey][project] = result[weekKey][project] || 0;
+      result[weekKey][project] += projects[project][date];
+    });
+  });
+
+  return sortObj(result);
+};
+
+const getStorageProjectsByMonth = () => {
+  const projects = getStorageProjects();
+  const result = {};
+
+  Object.keys(projects).forEach((project) => {
+    Object.keys(projects[project]).forEach((date) => {
+      const dateObj = (
+        new Date(date.substring(0, 4), date.substring(4, 6) - 1, date.substring(6, 8))
+      );
+      const month = dateObj.getMonth() + 1;
+      const monthYear = dateObj.getFullYear();
+      const monthKey = `m${monthYear}${month < 10 ? `0${month}` : month}`;
+
+      result[monthKey] = result[monthKey] || {};
+      result[monthKey][project] = result[monthKey][project] || 0;
+      result[monthKey][project] += projects[project][date];
+    });
+  });
+
+  return sortObj(result);
+};
+
+const getProjectNames = () => Object.keys(getStorageProjects());
+
+const getShowWeeksSetting = () => (
+  document.querySelector('#project-modal input[name="time"]:checked')?.value === 'week' || false
+);
+const getShowHoursSetting = () => (
+  document.querySelector('#project-modal input[name="showHours"]').checked
+);
+
+const isSingleTime = (projectsByTime) => Object.keys(projectsByTime).length === 1;
+const isSingleMonth = () => isSingleTime(getStorageProjectsByMonth());
+const showTotalColumn = (projectsByTime) => Object.keys(projectsByTime).length > 1;
+
+const projectId = (project) => project.replaceAll(/\W/g, '');
+const parseHour = (hour) => Number.parseFloat(hour.replace(',', '.')) || 0;
+const printHours = (hours) => (hours ? hours.toFixed(2).replace('.', ',') : '');
+const printPercent = (percent) => (percent ? `${Math.round(percent * 100)} %` : '');
+const printTime = (time, short = false) => {
+  if (time.match(/^v\d/) !== null) {
+    return `V${Number.parseInt(time.substring(5, 7), 10)}`;
+  }
+
+  if (time.match(/^m\d/) !== null) {
+    let months;
+    if (short) {
+      months = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'Maj', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec',
+      ];
+    } else {
+      months = [
+        'Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni',
+        'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December',
+      ];
+    }
+    return `${months[Number.parseInt(time.substring(5, 7), 10) - 1]}`;
+  }
+
+  return time;
+};
+const getTimeFromClassName = (className, prefix) => (
+  className.replace(new RegExp(`.*${prefix}(v|m)(\\d\\d\\d\\d\\d\\d).*`), '$1$2')
+);
+
+const showModal = (html, css, single) => {
+  if (!document.querySelector('#project-modal-style')) {
+    const styleNode = document.createElement('style');
+    styleNode.id = 'project-modal-style';
+    styleNode.innerHTML = css;
+    document.head.appendChild(styleNode);
+  }
+
+  let modalBody = document.querySelector('#modal-body');
+  if (!modalBody) {
+    modalBody = document.createElement('div');
+    modalBody.id = 'modal-body';
+  }
+  let modal = document.querySelector('#project-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'project-modal';
+    document.body.appendChild(modal);
+
+    const instructions = document.createElement('p');
+    instructions.innerText = `Denna tabell visar hur timmarna fördelas för ${single ? 'den aktuella månaden' : 'de aktuella månaderna'}. Ange hur många procent du jobbar, välj om du vill visa veckor eller månader samt om du vill visa timmar och klicka ur de projekt och veckor/månader som inte är aktuella för sammanräkningen så kommer procentsatserna att uppdateras. Du kan lägga till fler månader genom att stänga detta fönster, byta månad i FlexHRM:s månadsvy och sedan aktivera skriptet igen.`;
+    modal.appendChild(instructions);
+
+    const storageSettings = getStorageSettings();
+    const wpSetting = storageSettings.wp;
+    const timeSetting = storageSettings.time;
+    const showHoursSetting = storageSettings.showHours;
+
+    const settings = document.createElement('div');
+
+    settings.innerHTML = (
+      'Arbetstid: '
+      + `<input class="workingPercent" name="workingPercent" onChange="updateStorageSettings(); updateAll();" value="${wpSetting}"/> %`
+      + `<input onChange="showWeeks()" type="radio" name="time" value="week" ${timeSetting === 'week' ? 'checked' : ''}/>Visa veckor`
+      + `<input onChange="showMonths()" type="radio" name="time" value="month" ${timeSetting === 'month' ? 'checked' : ''}/>Visa månader`
+      + `<input onChange="showHours()" type="checkbox" name="showHours" ${showHoursSetting ? 'checked' : ''}/>Visa timmar`
+    );
+    modal.appendChild(settings);
+
+    modal.appendChild(modalBody);
+
+    if (!isSingleMonth()) {
+      const clear = document.createElement('a');
+      clear.text = 'Nollställ och stäng';
+      clear.href = '#';
+      clear.onclick = () => {
+        clearStorageProjects();
+        clearStorageChecked();
+        modal.remove();
+        return false;
+      };
+      modal.appendChild(clear);
+    }
+
+    const close = document.createElement('a');
+    close.text = 'Stäng';
+    close.href = '#';
+    close.onclick = () => { modal.remove(); return false; };
+    modal.appendChild(close);
+  }
+
+  modalBody.innerHTML = html;
+};
+
+const createTableHtml = (projectsByTime, showHours) => {
+  const checked = getStorageChecked();
+  const showHoursStyle = showHours ? '' : ' style="display: none;"';
+
+  let html = '<table>';
+
+  const colspan = `colspan="${showHours ? 2 : 1}"`;
+  html += '<tr class="header">';
+  html += '<th></th>';
+  Object.keys(projectsByTime).forEach((time) => {
+    html += `<th ${colspan} class="header${time}">`;
+    if (!isSingleTime(projectsByTime)) {
+      const checkedAttribute = checked[time] === undefined || checked[time] ? 'checked' : '';
+      const valueAttribute = `value="${time}"`;
+
+      html += `<input onChange="updateStorageChecked(); updateAll();" type=checkbox ${valueAttribute} ${checkedAttribute}/>`;
+    }
+    html += printTime(time, !showHours);
+    html += '</th>';
+  });
+  if (showTotalColumn(projectsByTime)) {
+    html += `<th ${colspan} class="isTotal">Totalt</th>`;
+  }
+  html += '</tr>';
+
+  const projectNames = getProjectNames();
+
+  projectNames.forEach((project) => {
+    const checkedAttribute = checked[project] === undefined || checked[project] ? 'checked' : '';
+    const valueAttribute = `value="${project}"`;
+
+    html += `<tr class="project project${projectId(project)}">`;
+    html += `<td><input onChange="updateStorageChecked(); updateAll();" type=checkbox ${valueAttribute} ${checkedAttribute}/>`;
+    html += `${project}</td>`;
+
+    Object.keys(projectsByTime).forEach((time) => {
+      const hours = projectsByTime[time][project] || 0;
+      html += `<td class="isHour hour${time}" ${showHoursStyle}>${printHours(hours)}</td>`;
+      html += `<td class="isPercent percent${time}"></td>`;
     });
 
-    // Percent each project each month
-    projectNames.forEach((project) => {
-        if (document.querySelector('#project-modal tr.project' + project.replaceAll(/\W/g, '') + ' input').checked) {
-            Object.keys(projects).forEach((month) => {
-                if (Object.keys(projects).length == 1 || document.querySelector('#project-modal tr.header th.header' + month + ' input').checked) {
-                    document.querySelector('#project-modal tr.project' + project.replaceAll(/\W/g, '') + ' td.percent' + month).innerText = 
-                        (projects[month][project] ? 
-                        Math.round(projects[month][project] / Number.parseFloat(document.querySelector('#project-modal tr.total td.hour' + month).innerText.replace(',', '.')) * wp * 100) + ' %' : 
-                        '');
-                }
-                else {
-                    document.querySelector('#project-modal tr.project' + project.replaceAll(/\W/g, '') + ' td.percent' + month).innerText = '';
-                }
-            });
-        }
-        else {
-            document.querySelectorAll('#project-modal tr.project' + project.replaceAll(/\W/g, '') + ' td[class^="percent"]').forEach((td) => {td.innerText = '';});
-        }
-    });
+    if (showTotalColumn(projectsByTime)) {
+      html += `<td class="isHour isTotal" ${showHoursStyle}></td>`;
+      html += '<td class="isPercent isTotal"></td>';
+      html += '</tr>';
+    }
+  });
 
-    // Total percent each month
-    document.querySelectorAll('#project-modal tr.total td[class^="percent2"]').forEach((td) => {
-        month = td.className.split('percent')[1];
-        td.innerText = 
-            Object.keys(projects).length == 1 || document.querySelector('#project-modal tr.header th.header' + month + ' input').checked ? 
-            (document.querySelector('#project-modal tr.total td.hour' + month).innerText !== '0,00' ? (wp * 100) + ' %' : '') :
-            '';
-    });
+  html += '<tr class="total">';
+  html += '<td>Totalt</td>';
+  Object.keys(projectsByTime).forEach((time) => {
+    html += `<td class="isHour hour${time}" ${showHoursStyle}></td>`;
+    html += `<td class="isPercent percent${time}"></td>`;
+  });
+  if (showTotalColumn(projectsByTime)) {
+    html += `<td class="isHour isTotal" ${showHoursStyle}></td>`;
+    html += '<td class="isPercent isTotal"></td>';
+  }
+  html += '</tr>';
 
-    if (Object.keys(projects).length > 1) {
-        // Total hours each project
-        projectNames.forEach((project) => {
-            if (document.querySelector('#project-modal tr.project' + project.replaceAll(/\W/g, '') + ' input').checked) {
-                let totalHours = 0;
-                Object.keys(projects).forEach((month) => {
-                    if (document.querySelector('#project-modal tr.header th.header' + month + ' input').checked) {
-                        totalHours += projects[month][project] ? projects[month][project] : 0;
-                    }
-                });
-                document.querySelector('#project-modal tr.project' + project.replaceAll(/\W/g, '') + ' td.hourTotal').innerText = totalHours.toFixed(2).replace('.', ',');
-            }
-            else {
-                document.querySelector('#project-modal tr.project' + project.replaceAll(/\W/g, '') + ' td.hourTotal').innerText = '';
-            }
-        });
+  html += '</table>';
 
-        // Total hours
+  return html;
+};
+
+const updateAll = () => {
+  const wpNode = document.querySelector('#project-modal .workingPercent');
+  const wp = Number.parseInt(wpNode.value, 10) / 100;
+  const isShowingTotal = (
+    document.querySelectorAll('#project-modal .header th[class*="header"]').length > 1
+  );
+
+  // Total hours each project
+  if (isShowingTotal) {
+    document.querySelectorAll('#project-modal .project').forEach((project) => {
+      if (project.querySelector('input').checked) {
         let totalHours = 0;
-        Object.keys(projects).forEach((month) => {
-            if (document.querySelector('#project-modal tr.header th.header' + month + ' input').checked) {
-                totalHours += Number.parseFloat(document.querySelector('#project-modal tr.total td.hour' + month).innerText.replace(',', '.'));
-            }
+        project.querySelectorAll('.isHour:not(.isTotal)').forEach((hour) => {
+          const time = getTimeFromClassName(hour.className, 'hour');
+          if (!isShowingTotal
+              || document.querySelector(`#project-modal .header${time} input`).checked) {
+            totalHours += parseHour(hour.innerText);
+          }
         });
-        document.querySelector('#project-modal tr.total td.hourTotal').innerText = totalHours.toFixed(2).replace('.', ',');
+        project.querySelector('.isHour.isTotal').innerText = printHours(totalHours);
+      } else {
+        project.querySelector('.isHour.isTotal').innerText = '';
+      }
+    });
+  }
 
-    
-        // Total percent each project
-        projectNames.forEach((project) => {
-            document.querySelector('#project-modal tr.project' + project.replaceAll(/\W/g, '') + ' td.percentTotal').innerText = 
-                document.querySelector('#project-modal tr.project' + project.replaceAll(/\W/g, '') + ' input').checked && 
-                document.querySelector('#project-modal tr.total td.hourTotal').innerText != '0,00' ? 
-                Math.round(
-                    Number.parseFloat(document.querySelector('#project-modal tr.project' + project.replaceAll(/\W/g, '') + ' td.hourTotal').innerText.replace(',', '.')) / 
-                    Number.parseFloat(document.querySelector('#project-modal tr.total td.hourTotal').innerText.replace(',', '.')) * wp * 100) + ' %' :
-                '';
-        });
+  // Total hours each time
+  document.querySelectorAll('#project-modal .total .isHour:not(.isTotal)').forEach((totalHour) => {
+    let totalHours = 0;
+    const time = getTimeFromClassName(totalHour.className, 'hour');
+    document.querySelectorAll(`#project-modal .project .hour${time}`).forEach((hour) => {
+      if (hour.parentElement.querySelector('input').checked) {
+        totalHours += parseHour(hour.innerText);
+      }
+    });
+    totalHour.innerText = printHours(totalHours);
+  });
 
-        // Total percent
-        document.querySelector('#project-modal tr.total td.percentTotal').innerText = 
-            document.querySelector('#project-modal tr.total td.hourTotal').innerText !== '0,00' ? (wp * 100) + ' %' : '';
+  // Total hours
+  if (isShowingTotal) {
+    let totalHours = 0;
+    document.querySelectorAll('#project-modal .project .isHour.isTotal').forEach((hour) => {
+      totalHours += parseHour(hour.innerText);
+    });
+    document.querySelector('#project-modal .total .isHour.isTotal').innerText = (
+      printHours(totalHours)
+    );
+  }
+
+  // Percent each project and time
+  document.querySelectorAll('#project-modal .project').forEach((project) => {
+    project.querySelectorAll('.isPercent:not(.isTotal)').forEach((percent) => {
+      const time = getTimeFromClassName(percent.className, 'percent');
+      if (project.querySelector('input').checked
+        && ((!isShowingTotal
+          || document.querySelector(`#project-modal .header${time} input`).checked))) {
+        const hours = parseHour(project.querySelector(`.hour${time}`).innerText);
+        const totalHoursNode = document.querySelector(`#project-modal .total .hour${time}`);
+        const totalHours = parseHour(totalHoursNode.innerText);
+        percent.innerText = totalHours ? printPercent((hours / totalHours) * wp) : '';
+      } else {
+        percent.innerText = '';
+      }
+    });
+  });
+
+  // Percent total each time
+  document.querySelectorAll('#project-modal .total .isPercent:not(.isTotal)').forEach((percent) => {
+    const time = getTimeFromClassName(percent.className, 'percent');
+    const totalHoursNode = document.querySelector(`#project-modal .total .hour${time}`);
+    const totalHours = parseHour(totalHoursNode.innerText);
+    if ((!isShowingTotal || document.querySelector(`#project-modal .header${time} input`).checked)
+      && totalHours) {
+      percent.innerHTML = printPercent(wp);
+    } else {
+      percent.innerHTML = '';
     }
+  });
 
+  // Percent total each project
+  document.querySelectorAll('#project-modal .project .isPercent.isTotal').forEach((percent) => {
+    if (percent.parentElement.querySelector('input').checked) {
+      const hours = parseHour(percent.parentElement.querySelector('.isHour.isTotal').innerText);
+      const totalHoursNode = document.querySelector('#project-modal .total .isHour.isTotal');
+      const totalHours = parseHour(totalHoursNode.innerText);
+      percent.innerText = totalHours ? printPercent((hours / totalHours) * wp) : '';
+    } else {
+      percent.innerHTML = '';
+    }
+  });
+
+  // Percent total
+  if (isShowingTotal) {
+    const totalHoursNode = document.querySelector('#project-modal .total .isHour.isTotal');
+    const totalHours = parseHour(totalHoursNode.innerText);
+    document.querySelector('#project-modal .total .isPercent.isTotal').innerText = totalHours
+      ? printPercent(wp)
+      : '';
+  }
 };
 
-let getProjectNames = () => {
-    let names = [];
-    Object.keys(projects).forEach((month) => {names = names.concat(Object.keys(projects[month]));});
-    names = names.filter((item, pos) => names.indexOf(item) === pos).sort();
+// eslint-disable-next-line no-unused-vars
+const showWeeks = () => {
+  const tableHtml = createTableHtml(getStorageProjectsByWeek(), getShowHoursSetting());
 
-    return names;
+  document.querySelector('#modal-body').innerHTML = tableHtml;
+  updateStorageSettings();
+  updateStorageChecked();
+  updateAll();
 };
 
-let updateProjectsWithCurrentMonth = () => {
-    projects[currentMonth] = getCurrentMonthProjects();
-    localStorage.setItem('projects', JSON.stringify(projects));
-    projectNames = getProjectNames();
-}
+// eslint-disable-next-line no-unused-vars
+const showMonths = () => {
+  const tableHtml = createTableHtml(getStorageProjectsByMonth(), getShowHoursSetting());
 
-let storageProjects = localStorage.getItem('projects');
-let projects = storageProjects ? JSON.parse(storageProjects) : {};
-let currentMonth = document.querySelector('#Period_EntityDescription').value;
-let projectNames = getProjectNames();
+  document.querySelector('#modal-body').innerHTML = tableHtml;
+  updateStorageSettings();
+  updateStorageChecked();
+  updateAll();
+};
 
-let createWorkingPercentHtml = () =>
-    "<div>Arbetstid: <input class='workingPercent' name='workingPercent' style='width: 40px; background-color: transparent; border: 1px solid white; color: white; text-align: right; font-size: 15px; padding-right: 5px; margin-bottom: 15px;' onChange='updateAll()' /> %</div>";
+// eslint-disable-next-line no-unused-vars
+const showHours = () => {
+  const projectsByTime = getShowWeeksSetting()
+    ? getStorageProjectsByWeek()
+    : getStorageProjectsByMonth();
+  const tableHtml = createTableHtml(projectsByTime, getShowHoursSetting());
 
-let createTableHtml = () => {
-    const cellStyle0 = ' style="padding: 3px 30px 3px 0"';
-    const cellStyle1 = ' style="padding: 3px 10px 3px 0; text-align: right; width: 50px;"';
-    const cellStyle2 = ' style="padding: 3px 30px 3px 0; text-align: right; width: 40px;"';
-    const cellStyle3 = ' style="padding: 3px 30px 3px 0; text-align: left; width: 40px;"';
-    const cellStyle4 = ' style="padding: 3px 0px 3px 0; text-align: right; width: 40px;"';
-    const cellStyle5 = ' style="padding: 3px 0px 3px 0; text-align: left; width: 40px;"';
-    
-    tableHtml = '<table>';
-    if (Object.keys(projects).length > 1) {
-        tableHtml += '<tr class="header" style="border-bottom: 1px solid white">';
-        tableHtml += '<th></th>';
-        Object.keys(projects).forEach((month) => {
-            tableHtml += '<th colspan="2"' + cellStyle3 + ' class="header' + month + '"><input checked onChange="updateAll()" type=checkbox value="' + month + '"/> ' + month + '</th>';
-        });
-        tableHtml += '<th colspan="2"' + cellStyle5 + '>Totalt</th>';
-        tableHtml += '</tr>';
-    }
-    projectNames.forEach((project) => {
-        tableHtml += '<tr class="project' + project.replaceAll(/\W/g, '') + '">';
-        tableHtml += '<td ' + cellStyle0 + '><input checked onChange="updateAll()" type=checkbox value="' + project + '"/> ' + project + '</td>';
+  document.querySelector('#modal-body').innerHTML = tableHtml;
+  updateStorageSettings();
+  updateStorageChecked();
+  updateAll();
+};
 
-        Object.keys(projects).forEach((month) => {
-            tableHtml += '<td class="hour' + month + '"' + cellStyle1 + '>' + (projects[month][project] ? projects[month][project].toFixed(2).replace('.', ',') : '') + '</td>';
-            tableHtml += '<td class="percent' + month + '"' + (Object.keys(projects).length === 1 ? cellStyle4 : cellStyle2) + '></td>';
-        });
+const createStyleCss = () => `
+  #project-modal {
+      background: rgba(0.5, 0.5, 0.5, 0.8);
+      color: white;
+      font-size: 15px; 
+      height: 100%; 
+      left: 0; 
+      line-height: 1.5; 
+      padding: 20px; 
+      position: fixed; 
+      top: 0; 
+      width: 100%; 
+      z-index: 100;
+  }
+  
+  #modal-body {
+    max-width: calc(100vw - 40px);
+  }
 
-        tableHtml += Object.keys(projects).length > 1 ? '<td class="hourTotal"' + cellStyle1 + '></td>' : '';
-        tableHtml += Object.keys(projects).length > 1 ? '<td class="percentTotal"' + cellStyle4 + '></td>' : '';
-        tableHtml += '</tr>';
-    });
+  #project-modal p {
+      max-width: 900px;
+  }
 
-    tableHtml += '<tr class="total" style="border-top: 1px solid white">';
-    tableHtml += '<td>Totalt</td>';
-    Object.keys(projects).forEach((month) => {
-        tableHtml += '<td class="hour' + month + '"' + cellStyle1 + '></td>';
-        tableHtml += '<td class="percent' + month + '"' + (Object.keys(projects).length === 1 ? cellStyle4 : cellStyle2)  + '></td>';
-    });
-    tableHtml += Object.keys(projects).length > 1 ? '<td class="hourTotal"' + cellStyle1 + '></td>' : '';
-    tableHtml += Object.keys(projects).length > 1 ? '<td class="percentTotal"' + cellStyle4 + '></td>' : '';
+  #project-modal a {
+      border: 1px solid white; 
+      display: inline-block;
+      margin-right: 15px; 
+      margin-top: 15px; 
+      padding: 5px 10px; 
+  }
 
-    tableHtml += '</tr>';
-    
-    tableHtml += '</table>';
+  #project-modal input.workingPercent {
+      background-color: transparent;
+      border: 1px solid white; 
+      color: white; 
+      font-size: 15px; 
+      margin-bottom: 15px;
+      padding-right: 5px; 
+      text-align: right; 
+      width: 40px;
+  }
 
-    return tableHtml;
-}
+  #project-modal input[type="radio"][name="time"] {
+      margin: 0 5px 0 25px;
+  }
 
-let execute = (wp = 100) => {
-    updateProjectsWithCurrentMonth();
+  #project-modal input[type="radio"][value="month"] {
+      margin-left: 10px;
+  }
 
-    showModal(createWorkingPercentHtml() + createTableHtml());
-    document.querySelector('#project-modal .workingPercent').value = wp;
-    updateAll();
-}
+  #project-modal input[type="checkbox"][name="showHours"] {
+      margin: 0 5px 0 25px;
+  }
+
+  #project-modal table {
+      display: block; 
+      overflow-x: scroll; 
+      padding-bottom: 20px;
+      white-space: nowrap;
+  }
+
+  #project-modal .header {
+      border-bottom: 1px solid white; 
+  }
+
+  #project-modal tr {
+      height: 30px;
+  }
+
+  #project-modal tr.total {
+      border-top: 1px solid white
+  }
+
+  #project-modal th {
+      padding: 3px 20px 3px 0;
+      text-align: left;
+  }
+  
+  #project-modal td {
+      padding: 3px 20px 3px 0;
+  }    
+
+  #project-modal tr.total td {
+      vertical-align: bottom;
+  }
+
+  #project-modal .isHour {
+      padding-right: 10px;
+      text-align: right;
+      width: 50px;
+  }    
+
+  #project-modal .isPercent {
+      text-align: right;
+      width: 40px;
+  }    
+
+  #project-modal th:last-of-type, #project-modal td:last-of-type {
+      padding-right: 0;
+  }  
+
+  #project-modal input {
+      margin-right: 5px;
+  }
+`;
+
+// eslint-disable-next-line no-unused-vars
+const execute = (wp) => {
+  updateStorage();
+
+  const settings = getStorageSettings();
+  const projectsByTime = settings.time === 'week'
+    ? getStorageProjectsByWeek()
+    : getStorageProjectsByMonth();
+  const tableHtml = createTableHtml(projectsByTime, settings.showHours);
+
+  showModal(tableHtml, createStyleCss(), isSingleMonth());
+  document.querySelector('#project-modal .workingPercent').value = wp || settings.wp;
+
+  updateStorage();
+  updateAll();
+};
