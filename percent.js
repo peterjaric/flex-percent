@@ -1,16 +1,40 @@
 /* eslint-disable no-param-reassign */
 
-const getProject = (i) => document.querySelectorAll('.body .row')[i]
+const SETTINGS = 'projectModalSettings';
+const CHECKED = 'projectModalChecked';
+const PROJECTS = 'projectModalProjects';
+const WARNINGS = 'projectModalWarnings';
+
+let warnings = JSON.parse(localStorage.getItem(WARNINGS))?.sort() || [];
+
+const getProjectMonthView = (i) => document.querySelectorAll('.body div.row')[i]
   .querySelectorAll('.Kontering input')[0].getAttribute('data-entitydescription');
-const getHours = (i, d) => Number.parseFloat(document.querySelectorAll('.right .body .row')[i]
-  .querySelector(`.day-${d}`).textContent.trim().replace(',', '.')) || 0;
-const getProjectCount = () => document.querySelectorAll('.body .row').length;
+const getProjectDayView = (i) => document.querySelectorAll('.body div.row')[i]
+  .querySelectorAll('.cell.Kontering.utokatProjekt input')[1]
+  .getAttribute('data-entitydescription');
+const getInternalCommentDayView = (i) => document.querySelectorAll('.body div.row')[i]
+  .querySelectorAll('.InternKommentar textarea')[0].value;
+const getHoursMonthView = (i, d) => Number
+  .parseFloat(document.querySelectorAll('.right .body .row')[i]
+    .querySelector(`.day-${d}`).textContent.trim().replace(',', '.')) || 0;
+const hasInternalComment = (i, d) => (
+  document.querySelectorAll('.right .body .row')[i]
+    .querySelector(`.day-${d}`).classList.contains('hasContent')
+);
+const getHoursDayView = (i) => Number
+  .parseFloat(document.querySelectorAll('.body div.row')[i]
+    .querySelectorAll('.cell.Tid span')[0].textContent.trim().replace(',', '.')) || 0;
+const getProjectCountMonthView = () => document.querySelectorAll('.body div.row').length;
+const getProjectCountDayView = () => document.querySelectorAll('.body div.row').length;
 const getCurrentMonth = () => document.querySelector('#Period_EntityDescription').value;
+const getCurrentDay = () => document.querySelector('#CurrentDatum')
+  .getAttribute('data-previous-value');
+const getCurrentView = () => document.querySelectorAll('.textToolbarBtn.dropDown')[0]?.textContent;
 
 const getCurrentMonthProjects = () => {
   const results = {};
   const currentMonth = getCurrentMonth();
-  const currentMonthDate = new Date(currentMonth.substr(0, 4), currentMonth.substr(4, 2) - 1, 1);
+  const currentMonthDate = new Date(currentMonth.substring(0, 4), currentMonth.substr(4, 6) - 1, 1);
   const daysInMonth = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() + 1, 0)
     .getDate();
   const yearKey = currentMonthDate.getFullYear();
@@ -18,20 +42,76 @@ const getCurrentMonthProjects = () => {
     ? `0${currentMonthDate.getMonth() + 1}`
     : currentMonthDate.getMonth() + 1;
 
-  for (let p = 0; p < getProjectCount(); p += 1) {
+  for (let p = 0; p < getProjectCountMonthView(); p += 1) {
     try {
-      const project = getProject(p);
+      const project = getProjectMonthView(p);
       if (project) {
         for (let d = 1; d <= daysInMonth; d += 1) {
           const dateKey = `${yearKey}${monthKey}${d < 10 ? `0${d}` : d}`;
+          if (hasInternalComment(p, d)) {
+            if (warnings.indexOf(dateKey) === -1) {
+              warnings.push(dateKey);
+            }
+          }
+
           results[project] = results[project] || {};
           results[project][dateKey] = results[project][dateKey] || 0;
-          results[project][dateKey] += getHours(p, d);
+          results[project][dateKey] += getHoursMonthView(p, d);
         }
       }
     // eslint-disable-next-line no-empty
     } catch (e) { }
   }
+
+  // eslint-disable-next-line no-use-before-define
+  updateStorageWarnings();
+
+  return results;
+};
+
+const getCurrentDayProjects = () => {
+  const results = {};
+  const currentDay = getCurrentDay();
+  const currentDayDate = new Date(
+    currentDay.substring(0, 4),
+    currentDay.substring(5, 7) - 1,
+    currentDay.substring(8, 10),
+  );
+  const yearKey = currentDayDate.getFullYear();
+  const monthKey = currentDayDate.getMonth() + 1 < 10
+    ? `0${currentDayDate.getMonth() + 1}`
+    : currentDayDate.getMonth() + 1;
+  const dayKey = currentDayDate.getDate() < 10
+    ? `0${currentDayDate.getDate()}`
+    : currentDayDate.getDate();
+
+  const dateKey = `${yearKey}${monthKey}${dayKey}`;
+  const index = warnings.indexOf(dateKey);
+  if (index > -1) {
+    warnings.splice(index, 1);
+  }
+
+  for (let p = 0; p < getProjectCountDayView(); p += 1) {
+    try {
+      const name = getProjectDayView(p);
+
+      if (name) {
+        const internalComment = getInternalCommentDayView(p);
+        // eslint-disable-next-line no-use-before-define
+        const project = getUseInternalCommentsSetting() && internalComment
+          ? `${name} - ${internalComment}`
+          : name;
+        results[project] = results[project] || {};
+        results[project][dateKey] = results[project][dateKey] || 0;
+        results[project][dateKey] += getHoursDayView(p);
+      }
+    // eslint-disable-next-line no-empty
+    } catch (e) { }
+  }
+
+  // eslint-disable-next-line no-use-before-define
+  updateStorageWarnings();
+
   return results;
 };
 
@@ -41,6 +121,13 @@ const getWeekNumber = (date) => {
   d.setUTCDate(d.getUTCDate() + 4 - dayNum);
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+};
+
+const getMonday = (year, week) => {
+  const d = new Date(year, 0, 1 + week * 7);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  return new Date(d.setDate(diff));
 };
 
 const merge = (obj1, obj2) => {
@@ -57,38 +144,61 @@ const sortObj = (obj) => Object.keys(obj).sort().reduce((result, key) => {
 }, {});
 
 const updateStorageProjects = () => {
-  const storageProjects = JSON.parse(localStorage.getItem('projectModalProjects')) || {};
-  const projects = sortObj(merge(storageProjects, getCurrentMonthProjects()));
-  localStorage.setItem('projectModalProjects', JSON.stringify(projects));
+  const storageProjects = JSON.parse(localStorage.getItem(PROJECTS)) || {};
+  if (getCurrentView() === 'Månadsvy') {
+    Object.keys(storageProjects).forEach((project) => {
+      Object.keys(storageProjects[project]).forEach((date) => {
+        if (date.startsWith(getCurrentMonth())) {
+          delete storageProjects[project][date];
+        }
+      });
+    });
+  }
+  Object.keys(storageProjects).forEach((project) => {
+    if (Object.keys(storageProjects[project]).length === 0) {
+      delete storageProjects[project];
+    }
+  });
+
+  let projects;
+  if (getCurrentView() !== 'Månadsvy' && getCurrentView() !== 'Dagvy') {
+    projects = storageProjects;
+  } else {
+    projects = sortObj(merge(
+      storageProjects,
+      getCurrentView() === 'Månadsvy' ? getCurrentMonthProjects() : getCurrentDayProjects(),
+    ));
+  }
+  localStorage.setItem(PROJECTS, JSON.stringify(projects));
 };
 
 const clearStorageProjects = () => {
-  localStorage.removeItem('projectModalProjects');
+  localStorage.removeItem(PROJECTS);
 };
 
 const getStorageProjects = () => {
-  const storageProjects = JSON.parse(localStorage.getItem('projectModalProjects')) || {};
+  const storageProjects = JSON.parse(localStorage.getItem(PROJECTS)) || {};
   return sortObj(storageProjects);
 };
 
 const updateStorageChecked = () => {
-  const storageChecked = JSON.parse(localStorage.getItem('projectModalChecked')) || {};
+  const storageChecked = JSON.parse(localStorage.getItem(CHECKED)) || {};
   const checked = { ...storageChecked };
 
   document.querySelectorAll('#project-modal table input').forEach((input) => {
     checked[input.value] = input.checked;
   });
 
-  localStorage.setItem('projectModalChecked', JSON.stringify(checked));
+  localStorage.setItem(CHECKED, JSON.stringify(checked));
 };
-const getStorageChecked = () => JSON.parse(localStorage.getItem('projectModalChecked')) || {};
+const getStorageChecked = () => JSON.parse(localStorage.getItem(CHECKED)) || {};
 
 const clearStorageChecked = () => {
-  localStorage.removeItem('projectModalChecked');
+  localStorage.removeItem(CHECKED);
 };
 
 const updateStorageSettings = () => {
-  const storageSettings = JSON.parse(localStorage.getItem('projectModalSettings')) || {};
+  const storageSettings = JSON.parse(localStorage.getItem(SETTINGS)) || {};
   let settings = { ...storageSettings };
 
   const wpNode = document.querySelector('#project-modal input.workingPercent');
@@ -106,18 +216,36 @@ const updateStorageSettings = () => {
     settings.showHours = showHoursNode.checked;
   }
 
-  if (Object.keys(settings).length === 0) {
-    settings = { wp: 100, time: 'month', showHours: true };
+  const useInternalCommentsNode = document
+    .querySelector('#project-modal input[name="useInternalComments"]');
+  if (useInternalCommentsNode) {
+    settings.useInternalComments = useInternalCommentsNode.checked;
   }
 
-  localStorage.setItem('projectModalSettings', JSON.stringify(settings));
+  if (Object.keys(settings).length === 0) {
+    settings = {
+      wp: 100, time: 'month', showHours: true, useInternalComments: false,
+    };
+  }
+
+  localStorage.setItem(SETTINGS, JSON.stringify(settings));
 };
-const getStorageSettings = () => JSON.parse(localStorage.getItem('projectModalSettings')) || {};
+const getStorageSettings = () => JSON.parse(localStorage.getItem(SETTINGS)) || {};
+
+const updateStorageWarnings = () => {
+  localStorage.setItem(WARNINGS, JSON.stringify(warnings));
+};
+
+const clearStorageWarnings = () => {
+  warnings = [];
+  localStorage.removeItem(WARNINGS);
+};
 
 const updateStorage = () => {
   updateStorageProjects();
   updateStorageChecked();
   updateStorageSettings();
+  updateStorageWarnings();
 };
 
 const getStorageProjectsByWeek = () => {
@@ -174,9 +302,15 @@ const getShowWeeksSetting = () => (
 const getShowHoursSetting = () => (
   document.querySelector('#project-modal input[name="showHours"]').checked
 );
+const getUseInternalCommentsSetting = () => {
+  if (document.querySelector('#project-modal input[name="useInternalComments"]')) {
+    return document.querySelector('#project-modal input[name="useInternalComments"]').checked;
+  }
+
+  return getStorageSettings().useInternalComments || false;
+};
 
 const isSingleTime = (projectsByTime) => Object.keys(projectsByTime).length === 1;
-const isSingleMonth = () => isSingleTime(getStorageProjectsByMonth());
 const showTotalColumn = (projectsByTime) => Object.keys(projectsByTime).length > 1;
 
 const projectId = (project) => project.replaceAll(/\W/g, '');
@@ -185,7 +319,11 @@ const printHours = (hours) => (hours ? hours.toFixed(2).replace('.', ',') : '');
 const printPercent = (percent) => (percent ? `${Math.round(percent * 100)} %` : '');
 const printTime = (time, short = false) => {
   if (time.match(/^v\d/) !== null) {
-    return `V${Number.parseInt(time.substring(5, 7), 10)}`;
+    const year = Number.parseInt(time.substring(1, 5), 10);
+    const week = Number.parseInt(time.substring(5, 7), 10);
+    const monday = getMonday(year, week);
+    const isoMonday = `${monday.getFullYear()}-${monday.getMonth() + 1 < 10 ? `0${monday.getMonth() + 1}` : monday.getMonth() + 1}-${monday.getDate() < 10 ? `0${monday.getDate()}` : monday.getDate()}`;
+    return `<a href="/HRM/Tid/Vecka?datum=${isoMonday}">V${week}</a>`;
   }
 
   if (time.match(/^m\d/) !== null) {
@@ -200,7 +338,10 @@ const printTime = (time, short = false) => {
         'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December',
       ];
     }
-    return `${months[Number.parseInt(time.substring(5, 7), 10) - 1]}`;
+    const year = Number.parseInt(time.substring(1, 5), 10);
+    const month = Number.parseInt(time.substring(5, 7), 10);
+    const isoDate = `${year}-${month < 10 ? `0${month}` : month}-01`;
+    return `<a href="/HRM/Tid/Manad?datum=${isoDate}">${months[month - 1]}</a`;
   }
 
   return time;
@@ -209,7 +350,7 @@ const getTimeFromClassName = (className, prefix) => (
   className.replace(new RegExp(`.*${prefix}(v|m)(\\d\\d\\d\\d\\d\\d).*`), '$1$2')
 );
 
-const showModal = (html, css, single) => {
+const showModal = (html, css) => {
   if (!document.querySelector('#project-modal-style')) {
     const styleNode = document.createElement('style');
     styleNode.id = 'project-modal-style';
@@ -229,13 +370,14 @@ const showModal = (html, css, single) => {
     document.body.appendChild(modal);
 
     const instructions = document.createElement('p');
-    instructions.innerText = `Denna tabell visar hur timmarna fördelas för ${single ? 'den aktuella månaden' : 'de aktuella månaderna'}. Ange hur många procent du jobbar, välj om du vill visa veckor eller månader samt om du vill visa timmar och klicka ur de projekt och veckor/månader som inte är aktuella för sammanräkningen så kommer procentsatserna att uppdateras. Du kan lägga till fler månader genom att stänga detta fönster, byta månad i FlexHRM:s månadsvy och sedan aktivera skriptet igen.`;
+    instructions.innerText = 'Denna tabell visar hur timmarna fördelas för de valda datumen. Ange hur många procent du jobbar, välj om du vill visa veckor eller månader samt om du vill visa timmar och klicka ur de projekt och veckor/månader som inte är aktuella för sammanräkningen så kommer procentsatserna att uppdateras. Du kan lägga till fler datum genom att stänga detta fönster, byta dag/månad i FlexHRM:s dag/månadsvy och sedan aktivera skriptet igen. Du kan även använda dig av interna kommentarer i FlexHRM för att dela in projekten ytterligare.';
     modal.appendChild(instructions);
 
     const storageSettings = getStorageSettings();
     const wpSetting = storageSettings.wp;
     const timeSetting = storageSettings.time;
     const showHoursSetting = storageSettings.showHours;
+    const useInternalCommentsSetting = storageSettings.useInternalComments;
 
     const settings = document.createElement('div');
 
@@ -245,23 +387,23 @@ const showModal = (html, css, single) => {
       + `<input onChange="showWeeks()" type="radio" name="time" value="week" ${timeSetting === 'week' ? 'checked' : ''}/>Visa veckor`
       + `<input onChange="showMonths()" type="radio" name="time" value="month" ${timeSetting === 'month' ? 'checked' : ''}/>Visa månader`
       + `<input onChange="showHours()" type="checkbox" name="showHours" ${showHoursSetting ? 'checked' : ''}/>Visa timmar`
+      + `<input onChange="useInternalComments()" type="checkbox" name="useInternalComments" ${useInternalCommentsSetting ? 'checked' : ''}/>Använd interna kommentarer för projektindelning`
     );
     modal.appendChild(settings);
 
     modal.appendChild(modalBody);
 
-    if (!isSingleMonth()) {
-      const clear = document.createElement('a');
-      clear.text = 'Nollställ och stäng';
-      clear.href = '#';
-      clear.onclick = () => {
-        clearStorageProjects();
-        clearStorageChecked();
-        modal.remove();
-        return false;
-      };
-      modal.appendChild(clear);
-    }
+    const clear = document.createElement('a');
+    clear.text = 'Nollställ och stäng';
+    clear.href = '#';
+    clear.onclick = () => {
+      clearStorageProjects();
+      clearStorageChecked();
+      clearStorageWarnings();
+      modal.remove();
+      return false;
+    };
+    modal.appendChild(clear);
 
     const close = document.createElement('a');
     close.text = 'Stäng';
@@ -274,6 +416,10 @@ const showModal = (html, css, single) => {
 };
 
 const createTableHtml = (projectsByTime, showHours) => {
+  if (Object.keys(projectsByTime).length === 0 && projectsByTime.constructor === Object) {
+    return '<p><em>Välj dagvy eller månadsvy och aktivera sedan skriptet igen för att lägga till datum.</em></p>';
+  }
+
   const checked = getStorageChecked();
   const showHoursStyle = showHours ? '' : ' style="display: none;"';
 
@@ -334,6 +480,16 @@ const createTableHtml = (projectsByTime, showHours) => {
   html += '</tr>';
 
   html += '</table>';
+
+  if (getUseInternalCommentsSetting() && warnings.length > 0) {
+    html += '<p class="warning">';
+    html += 'Följande datum har intern kommentar och behöver uppdateras från dagvyn: ';
+    html += warnings.map((dateKey) => {
+      const isoDate = `${dateKey.substring(0, 4)}-${dateKey.substring(4, 6)}-${dateKey.substring(6, 8)}`;
+      return `<nobr><a href="/HRM/Tid/Dagredovisning?datum=${isoDate}">${isoDate}</a></nobr>`;
+    }).join(', ');
+    html += '</p>';
+  }
 
   return html;
 };
@@ -446,6 +602,7 @@ const showWeeks = () => {
   document.querySelector('#modal-body').innerHTML = tableHtml;
   updateStorageSettings();
   updateStorageChecked();
+  updateStorageWarnings();
   updateAll();
 };
 
@@ -456,6 +613,7 @@ const showMonths = () => {
   document.querySelector('#modal-body').innerHTML = tableHtml;
   updateStorageSettings();
   updateStorageChecked();
+  updateStorageWarnings();
   updateAll();
 };
 
@@ -469,7 +627,15 @@ const showHours = () => {
   document.querySelector('#modal-body').innerHTML = tableHtml;
   updateStorageSettings();
   updateStorageChecked();
+  updateStorageWarnings();
   updateAll();
+};
+
+// eslint-disable-next-line no-unused-vars
+const useInternalComments = () => {
+  clearStorageProjects();
+  // eslint-disable-next-line no-use-before-define
+  execute();
 };
 
 const createStyleCss = () => `
@@ -495,12 +661,34 @@ const createStyleCss = () => `
       max-width: 900px;
   }
 
+  #project-modal p.warning {
+    background-position: 0 2px;
+    line-height: 1.5;
+    margin-top: 0px;
+    padding-top: 0;
+  }
+
   #project-modal a {
       border: 1px solid white; 
       display: inline-block;
       margin-right: 15px; 
       margin-top: 15px; 
       padding: 5px 10px; 
+  }
+
+  #project-modal p.warning a {
+    border: none;
+    display: inline;
+    margin: 0;
+    padding: 0;
+    text-decoration: underline;
+  }
+
+  #project-modal table a {
+    border: none;
+    display: inline;
+    padding: 0;
+    margin: 0;
   }
 
   #project-modal input.workingPercent {
@@ -522,7 +710,8 @@ const createStyleCss = () => `
       margin-left: 10px;
   }
 
-  #project-modal input[type="checkbox"][name="showHours"] {
+  #project-modal input[type="checkbox"][name="showHours"],
+  #project-modal input[type="checkbox"][name="useInternalComments"] {
       margin: 0 5px 0 25px;
   }
 
@@ -588,9 +777,8 @@ const execute = (wp) => {
     : getStorageProjectsByMonth();
   const tableHtml = createTableHtml(projectsByTime, settings.showHours);
 
-  showModal(tableHtml, createStyleCss(), isSingleMonth());
+  showModal(tableHtml, createStyleCss());
   document.querySelector('#project-modal .workingPercent').value = wp || settings.wp;
 
-  updateStorage();
   updateAll();
 };
